@@ -1,4 +1,6 @@
 library('pracma')
+library('data.table')
+library('ggplot2')
 
 # R implementation of python's sklearn.dataset
 make_circles <- function(n_samples = 800, shuffle = TRUE, noise = NULL, random_state = NULL, factor=0.8){
@@ -66,3 +68,47 @@ make_blobs <- function(n_samples=100, n_features=2, centers=3L, cluster_std=1.0,
       }  
     return(list(x=x, y=y));
 }
+
+get_test_dataset <-function(dataset_folder){
+  target_countries <- c('United States', 'Mexico', 'Chile', 'Turkey', 'Germany', 'Poland', 'Czech Republic', 'Sweden')
+  target_columns <- c('country', 'year')
+  env <- environment();
+  pwt_path = file.path(dataset_folder, 'pwt91.csv');
+  swiid_path= file.path(dataset_folder, 'swiid8_3.rda');
+  pwt = read.csv(pwt_path);
+  swiid_names = load(swiid_path, envir = env);
+  pwt <- pwt[pwt$country %in% target_countries, ]
+  swiid_summary <- swiid_summary[swiid_summary$country %in% target_countries, ]
+  
+  # take only combinations of 
+  
+  swiid_summary <- dplyr::semi_join(swiid_summary, pwt, by = target_columns)
+  pwt <- dplyr::semi_join(pwt, swiid_summary, by = target_columns)
+  
+  # ensure rows from pwt and swiid are ordered in the same way
+  complete_table <- dplyr::inner_join(pwt, swiid_summary, by=target_columns)
+  complete_table_by_country <- split(complete_table, complete_table$country)
+  
+  extract_from_country <- function(country_tab){
+    country_tab <- country_tab[c('country', 'year', 'rgdpna', 'pop', 'gini_mkt', 'gini_disp')]
+    country_tab <- country_tab[complete.cases(country_tab), ]
+    # OX
+
+    growth_rate <- 100*(log(country_tab$rgdpna/country_tab$pop) - data.table::shift(log(country_tab$rgdpna/country_tab$pop)))
+    growth_rate <- growth_rate[complete.cases(growth_rate)]
+    # OY 1
+    gini_mkt_rate <- 100*(log(country_tab$gini_mkt) - data.table::shift(log(country_tab$gini_mkt)));
+    gini_mkt_rate <- gini_mkt_rate[complete.cases(gini_mkt_rate)]
+    # OY 2
+    gini_disp_rate <- 100*(log(country_tab$gini_disp) - data.table::shift(log(country_tab$gini_disp)));
+    gini_disp_rate <- gini_disp_rate[complete.cases(gini_disp_rate)]
+    
+    country_label <- rep(unique(country_tab$country), length(growth_rate))
+    return(data.frame(country_label, growth_rate, gini_mkt_rate, gini_disp_rate))
+  }
+  
+  extracted_data <- lapply(complete_table_by_country, extract_from_country)
+  full_extracted_data <- Reduce(rbind, extracted_data)
+  
+  return(full_extracted_data)
+  }
