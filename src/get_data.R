@@ -179,8 +179,85 @@ initial_analysis_plots <- function(dataset_folder,sliding_window = 5){
   plot_dataset(res_full_sw, legend = FALSE, title = "All countries with sliding window average")
   plot_dataset(res_full_sw_rolling, legend = FALSE, title = "All countries with rolling mean");
   
-  }
+}
 
-rough_k_means <- function(dataset, k_clusters=3){
+
+
+indicate_minimum <- function(distances, k_clusters, epsilon=4){
+  argmin <- which.min(distances)
+  ratios <- distances / distances[argmin];
+  ratios[argmin] <- NA; # mask
+  ratios_above <- ratios > epsilon
+  if(sum(ratios_above, na.rm = TRUE)){
+    return(c(-argmin, -which(ratios_above)));
+  }
+  return((argmin))
   
+
+  # return list with lower/upper bound assignments
+}
+
+get_cluster_indices <- function(assignments, target_k, include_upper=FALSE){
+  return(unlist(lapply(assignments, function(x) target_k %in% unlist(x))));
+}
+
+rough_k_means <- function(dataset, k_clusters=3, w_lower=0.7, w_upper=0.3, epsilon=0.1){
+converged <- FALSE
+cluster_assignment <- apply(dataset, 1, function(X) list(sample.int(k_clusters, 1)));
+centroids <- matrix(nrow = k_clusters, ncol= ncol(dataset))
+distances <- matrix(nrow = nrow(dataset), ncol=k_clusters)
+
+compute_centroids <- function(centroids){
+
+  for(K in 1:k_clusters){
+    # please note that upper approximation here is in fact upper w/o lower, 
+    # so it does not follow definition (for the sake of computation)
+    lower_app <- get_cluster_indices(cluster_assignment, K)
+    upper_app <- get_cluster_indices(cluster_assignment, -K) 
+    
+    if((sum(lower_app) != 0) & (sum(upper_app) == 0)){
+      cluster_data = dataset[lower_app, ]
+      centroids[K, ] <- apply(cluster_data, 2, mean) 
+    } else if((sum(lower_app) == 0) & (sum(upper_app) != 0)){
+      cluster_data = dataset[upper_app, ]
+      centroids[K, ] <- apply(cluster_data, 2, mean)
+    } else {
+      cluster_upper_data <- dataset[upper_app, ];
+      cluster_lower_data <- dataset[lower_app, ];
+      upper_part_app <- apply(cluster_upper_data, 2, mean)
+      lower_part_app <- apply(cluster_lower_data, 2, mean)
+      centroids[K, ] <- (w_lower * lower_part_app) + (w_upper * upper_part_app)
+    }
+    
+
+
+  }
+  return(centroids)
+
+}
+calculate_distances <- function(distances){
+  for(K in 1:k_clusters){
+    kth_centroid = centroids[K, ]
+    distances[, K] = apply(dataset, 1, function(x) dist(rbind(x, kth_centroid)))
+    
+  }
+  return(distances)
+  
+}
+assign_clusters <- function(){
+  new_cluster_assignment <- apply(distances, 1, function(x) list(indicate_minimum(x)));
+  is_same = all(new_cluster_assignment %in% cluster_assignment)
+  return(list('converged'=is_same, 'new_cluster_assignment'=new_cluster_assignment))
+}
+
+while(!converged){
+  centroids = compute_centroids(centroids);
+  distances = calculate_distances(distances);
+  assign_res = assign_clusters();
+  converged = assign_res$converged;
+  cluster_assignment = assign_res$new_cluster_assignment;
+}
+
+return(list("centroids" = centroids, "cluster_assignments" =  cluster_assignment))
+
 }
