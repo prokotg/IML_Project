@@ -185,9 +185,9 @@ initial_analysis_plots <- function(dataset_folder,sliding_window = 5){
 
 indicate_minimum <- function(distances, k_clusters, epsilon=4){
   argmin <- which.min(distances)
-  ratios <- distances / distances[argmin];
+  ratios <- distances[argmin] / distances ;
   ratios[argmin] <- NA; # mask
-  ratios_above <- ratios > epsilon
+  ratios_above <- (ratios > epsilon);
   if(sum(ratios_above, na.rm = TRUE)){
     return(c(-argmin, -which(ratios_above)));
   }
@@ -201,7 +201,7 @@ get_cluster_indices <- function(assignments, target_k, include_upper=FALSE){
   return(unlist(lapply(assignments, function(x) target_k %in% unlist(x))));
 }
 
-rough_k_means <- function(dataset, k_clusters=3, w_lower=0.7, w_upper=0.3, epsilon=0.1){
+rough_k_means <- function(dataset, k_clusters=3, w_lower=0.7, w_upper=0.3, epsilon=2){
 converged <- FALSE
 cluster_assignment <- apply(dataset, 1, function(X) list(sample.int(k_clusters, 1)));
 centroids <- matrix(nrow = k_clusters, ncol= ncol(dataset))
@@ -245,7 +245,7 @@ calculate_distances <- function(distances){
   
 }
 assign_clusters <- function(){
-  new_cluster_assignment <- apply(distances, 1, function(x) list(indicate_minimum(x)));
+  new_cluster_assignment <- apply(distances, 1, function(x) list(indicate_minimum(x, k_clusters, epsilon)));
   is_same = all(new_cluster_assignment %in% cluster_assignment)
   return(list('converged'=is_same, 'new_cluster_assignment'=new_cluster_assignment))
 }
@@ -260,4 +260,15 @@ while(!converged){
 
 return(list("centroids" = centroids, "cluster_assignments" =  cluster_assignment))
 
+}
+
+plot_rough <- function(dataset, means_result){
+  ass <- means_result$cluster_assignments
+  ass <- unlist(lapply(ass, function(x) ifelse(length(unlist(x)) > 1 , 0 , unlist(x))));
+  gobj <- ggplot(dataset) + geom_point(aes(x=growth_rate, y=gini_mkt_rate, colour=factor(ass)), size=2);
+  
+  gobj <- gobj + geom_point(data=as.data.frame(means_result$centroids), aes(x=V1, y=V2, color='red', size=4))
+ 
+  plot(gobj)
+  return(ass)
 }
