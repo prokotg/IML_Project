@@ -2,6 +2,7 @@ library('pracma')
 library('data.table')
 library('ggplot2')
 library('zoo')
+library('grDevices')
 
 # R implementation of python's sklearn.dataset
 make_circles <- function(n_samples = 800, shuffle = TRUE, noise = NULL, random_state = NULL, factor=0.8){
@@ -201,7 +202,7 @@ get_cluster_indices <- function(assignments, target_k, include_upper=FALSE){
   return(unlist(lapply(assignments, function(x) target_k %in% unlist(x))));
 }
 
-rough_k_means <- function(dataset, k_clusters=3, w_lower=0.7, w_upper=0.3, epsilon=2){
+rough_k_means <- function(dataset, k_clusters=3, w_lower=0.7, w_upper=0.3, epsilon=2, max_iter=10000){
 converged <- FALSE
 cluster_assignment <- apply(dataset, 1, function(X) list(sample.int(k_clusters, 1)));
 centroids <- matrix(nrow = k_clusters, ncol= ncol(dataset))
@@ -250,7 +251,7 @@ assign_clusters <- function(){
   return(list('converged'=is_same, 'new_cluster_assignment'=new_cluster_assignment))
 }
 
-while(!converged){
+while(!converged ){
   centroids = compute_centroids(centroids);
   distances = calculate_distances(distances);
   assign_res = assign_clusters();
@@ -258,17 +259,34 @@ while(!converged){
   cluster_assignment = assign_res$new_cluster_assignment;
 }
 
-return(list("centroids" = centroids, "cluster_assignments" =  cluster_assignment))
+return(list("centroids" = centroids, 
+            "cluster_assignments" =  cluster_assignment))
 
 }
 
 plot_rough <- function(dataset, means_result){
+  if (ncol(dataset) != 2) stop("Only for 2D plotting")
   ass <- means_result$cluster_assignments
   ass <- unlist(lapply(ass, function(x) ifelse(length(unlist(x)) > 1 , 0 , unlist(x))));
-  gobj <- ggplot(dataset) + geom_point(aes(x=growth_rate, y=gini_mkt_rate, colour=factor(ass)), size=2);
+  clusters <- factor(ass)
+  gobj <- ggplot() + geom_point(d=dataset,aes(x=dataset[,1], y=dataset[,2], colour=clusters), size=2);
+  gobj <- gobj + labs(x = colnames(dataset)[1], y= colnames(dataset)[2])
+  gobj <- gobj + geom_point(data=as.data.frame(means_result$centroids), aes(x=V1, y=V2, color='cluster center', size=4))
+  gobj <- gobj + ggtitle("Rough k-means with 3 clusters \nepsilon=2") + theme(plot.title = element_text(hjust = 0.5))
+  #gobj <- gobj + guides(color=guide_legend("Cluster no.")) + scale_color_hue(labels = c("multiple upper approx.", levels(clusters)[-1], "centroid centers"))
+  # gobj <- gobj + scale_color_manual(values = ass) + scale_fill_manual(values = ass)
+  #gobj <- gobj + geom_polygon(data=dataset,aes(x = dataset[,1], y=dataset[,2], fill=clusters))
   
-  gobj <- gobj + geom_point(data=as.data.frame(means_result$centroids), aes(x=V1, y=V2, color='red', size=4))
- 
+  for(cluster_no in as.integer(levels(clusters))[-1]){
+    cluster_upper_approx = dataset[ass == cluster_no | ass == -cluster_no, ]
+    ch <- cluster_upper_approx[chull(cluster_upper_approx),]
+    gobj <- gobj + geom_polygon(data=ch, 
+                                aes(x = growth_rate, 
+                                    y = gini_mkt_rate, 
+                                    fill=scales::hue_pal()(3)[1]), alpha=0.3)
+  } 
+  #g <- ggplot_build(gobj)
+  #print(unique(g$data[[1]]["fill"]))
   plot(gobj)
   return(ass)
 }
