@@ -1,0 +1,577 @@
+\documentclass[fullpage]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[ruled,vlined]{algorithm2e}
+	\addtolength{\oddsidemargin}{-.875in}
+	\addtolength{\evensidemargin}{-.875in}
+	\addtolength{\textwidth}{1.75in}
+
+	\addtolength{\topmargin}{-.875in}
+	\addtolength{\textheight}{1.75in}
+\usepackage[utf8]{inputenc}
+\usepackage{wrapfig}
+\usepackage{float}
+\usepackage[breaklinks]{hyperref}
+\hypersetup{colorlinks=true, linkcolor=Black, citecolor=Black, filecolor=Blue,
+    urlcolor=Blue, unicode=true}
+\usepackage{natbib}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{listings}
+\usepackage{subcaption}
+\usepackage{cleveref}
+\usepackage{hyperref}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+<<init, echo=FALSE>>=
+knit_hooks$set(document = function(x) {
+  sub('\\usepackage[]{color}',
+'\\usepackage[usenames,dvipsnames]{color}', x, fixed = TRUE)
+})
+opts_chunk$set(fig.path="figures/knitr-")
+opts_chunk$set(fig.pos = 'H')
+
+@
+
+
+
+\begin{document}
+
+
+\title{Rough k-means clustering}
+
+\author{Tomasz Grzegorzek }
+\date{November 2020}
+
+
+
+\maketitle
+
+
+
+\section{Introduction}
+\subsection{K-means clustering}
+We begin by considering the problem of identifying groups, or clusters, of data points in a multidimensional space. Suppose we have a data set ${x_1,..., x_N }$ consisting of $N$ observations of a random $D$-dimensional Euclidean variable $x$. Our goal is to partition the data set into some number $k$ of clusters, where we shall suppose for
+the moment that the value of $k$ is given.
+
+The first step is to randomly assign cluster centers $m_i$ and then interatively follow the procedure till the conergence
+
+\begin{enumerate}
+\item Assign each point only one cluster by the following rule
+\[S_i^{(t)} = \big \{ x_p : \big \| x_p - m^{(t)}_i \big \|^2 \le \big \| x_p - m^{(t)}_j \big \|^2 \ \forall j, 1 \le j \le k \big\}\]
+\item Recalculate cluster centroids
+\[m^{(t+1)}_i = \frac{1}{\left|S^{(t)}_i\right|} \sum_{x_j \in S^{(t)}_i} x_j\]
+\end{enumerate}
+
+
+Convergance criteria might be one of the following:
+
+\begin{itemize}
+  \item Reached maximum number of iterations
+  \item Cluster assignment for all points do not change between iteration $t$ and $(t+1)$
+\end{itemize}
+
+\subsection{Indistinguishable sets - an intuitive problem statement }
+
+Let $U$ denote the universe. Let $R$ be an equivalence relationship on $U$ that partitions $U$ into equivalence classes $U\setminus R = (E_1, ... ,E_N)$. We say that elements within the equivalence classes are indistinguishable. This is problematic when we want to construct an arbitrary set $X\subset U$ because the elements $x_i$ of $X$ might be in the equivalence class with other elements $u_i$ from $U$ that are not in $X$. Since $x_i$ and $u_i$ are indistinguishable they should be within one set, but this might not be the case. 
+
+Example:
+
+
+Let the set $Z = \{a, b, c\}$ have the equivalence relation $\{(a, a), (b, b), (c, c), (b, c), (c, b)\}$. The following sets are equivalence classes of this relation:
+
+\[[a] = \{a\},   [b] = [c] = \{b, c\}\].
+
+The set of all equivalence classes for this relation is ${{a}, {b, c}}$. 
+
+Now let $X \subset Z$ be a crisp set $X = {a,b}$. Please note that $b$-equivalence class is $\{b, c\}$ but $c$ is not in $X$. Since $b$ and $c$ are said to be indistinguishable, the question arises whether $b$ should removed from $X$ because $c$ is not there, or should $c$ be included in $X$ because $b$ is there. 
+
+\subsection{Rough sets}
+
+
+Rough sets theory states that each set $X$ might be represented by its upper approximation $\overline{A}(X)$ and lower approximation $\underline{A}(X)$ (the so called "positive region") :
+
+Upper approximation $\overline{A}(X)$ is the union of all elementary sets (equivalence classes)  that are subsets of $X$
+
+\[\underline{A}(X) = \bigcup \{ e \in U \setminus R\ : e \subset X\}\]
+
+Lower approximation $\underline{A}(X)$ is the union of all elementary sets that have a nonempty intersection with $X$
+
+\[\overline{A}(X) = \bigcup \{ e \in U \setminus R\ : e \cap X \neq \emptyset \}\]
+
+That definition allows us to define sets that contain elements that have characteristic typical to X but also those that have just some characteristics of X. In the case of previous example:
+
+\[Z = \{a, b, c\}\]
+
+\[\underline{A}(Z) = {{a}}\]
+\[\overline{A}(Z) = {{a, b, c}}\]
+
+The following three important properties come from definitions of upper and lower approximation:
+\begin{enumerate}
+  \item[\textbf{P1}] An object v can be part of at most one lower approximation.
+  \item[\textbf{P2}] If an object v is a part of lower approximation $\underline{A}$ it is also part of $\overline{A}$
+  \item[\textbf{P3}] If object v is not part of any lower bound then it belongs to at least two upper bounds
+
+\end{enumerate}
+
+
+
+
+\section{Rough k-means}
+K-means clustering with rough sets requires some changes to a typical procedure \cite{https://doi.org/10.1002/widm.16}. Firstly, every cluster $S_i$ is going to be a rough set. Next, there will be some predefined constant $\varepsilon \leq 1$ that will control how elements are assigned to either lower or upper bound in the following way:
+
+Let $d(v, m_i)$ be the distance\footnote{In the implementation it is always an euclidean distance} from object vector $v$ to cluster centroid $m_i$. For every $v$ find $m_k$ such that $d(v, m_k)$ is minimal across all centroids. Then, calculate the ratio $d(v, m_k)/d(v, m_i)$  $ \forall \ i, 1 \le i \le k $. If any of this ratio is bigger that $\varepsilon$, assign $v$ to an upper approximation of $S_k$ and any $S_i$ for which ratio was bigger. Else, $v$ belongs to the lower bound of $S_k$
+
+Centroids are calculated based on pre-defined weights $w_{lower}$ and $w_{upper}$ that corresponds to weigh of elements in lower apporximation and elements in upper approximation that are not in lower approximation, respectively. $w_{lower} + w_{upper} =1$ with $0 \leq w_{lower}, w_{upper} \leq 1$
+
+\[m^{(t+1)}_i = w_{lower} \times \frac{1}{\left|\underline{A}(S^{(t)}_i)\right|} \sum_{x_j \in \underline{A}(S^{(t)}_i)} x_j +
+w_{upper} \times \frac{1}{\left|\overline{A}(S^{(t)}_i) - \underline{A}(S^{(t)}_i)\right|} \sum_{x_j \in \overline{A}(S^{(t)}_i) - \underline{A}(S^{(t)}_i)} x_j\]
+
+
+
+\section{Implementation details}
+
+There are few implementation decisions that require explaining.\footnote{Source code is available at \hyperlink{https://github.com/prokotg/IML_Project}{https://github.com/prokotg/IML_Project}}
+
+Firstly, whenever "upper approximation" is mentioned either in the form of variable name or in a comment, it is meant to be the part of upper approximation that is not in lower approximation. This is done strictly for clarity of code. 
+
+Secondly, every object $v$ has a list of cluster assignments. In that list, positive integers indicate lower approximation assignment and negative integers indicate upper approximation without lower bound. $0$ is not used, clusters are enumerated starting from $1$. Below is the code chunk for generating set assignment where this idea is incorporated
+
+<<indicate_minimum, eval=FALSE>>=
+# Get the mean for each group
+indicate_minimum <- function(distances, k_clusters, epsilon=4){
+  argmin <- which.min(distances)
+  ratios <- distances[argmin] / distances ;
+  ratios[argmin] <- NA; # mask
+  ratios_above <- (ratios > epsilon);
+  if(sum(ratios_above, na.rm = TRUE)){
+    return(c(-argmin, -which(ratios_above)));
+  }
+  return((argmin))
+@
+
+
+The cluster centroid initialization is based on Random Partition (RP) technique. RP assigns randomly every object $v$ a lower approximation of some cluster. This initially makes centroids be placed near the global mean which has its advantages and disadvantages. Decision to use this technique was inspired by Hamerly et al \cite{10.1145/584792.584890} that showed it is particulary suitable for fuzzy k-means and harmonic k-means which are more similar to rough k-means than traditional k-means is. 
+<<cluster_initialization, eval=FALSE>>=
+cluster_assignment <- apply(dataset, 1, function(X) list(sample.int(k_clusters, 1)));
+@
+
+% describe compute_centroids
+
+<<sd, eval=FALSE>>=
+compute_centroids <- function(centroids){
+
+  for(K in 1:k_clusters){
+    # please note that upper approximation here is in fact upper w/o lower, 
+    # so it does not follow definition (for the sake of computation)
+    lower_app <- get_cluster_indices(cluster_assignment, K)
+    upper_app <- get_cluster_indices(cluster_assignment, -K) 
+    
+    if((sum(lower_app) != 0) & (sum(upper_app) == 0)){
+      cluster_data = dataset[lower_app, ]
+      centroids[K, ] <- apply(cluster_data, 2, mean) 
+    } else if((sum(lower_app) == 0) & (sum(upper_app) != 0)){
+      cluster_data = dataset[upper_app, ]
+      centroids[K, ] <- apply(cluster_data, 2, mean)
+    } else {
+      cluster_upper_data <- dataset[upper_app, ];
+      cluster_lower_data <- dataset[lower_app, ];
+      upper_part_app <- apply(cluster_upper_data, 2, mean)
+      lower_part_app <- apply(cluster_lower_data, 2, mean)
+      centroids[K, ] <- (w_lower * lower_part_app) + (w_upper * upper_part_app)
+    }
+@
+
+
+\section{Benchmarking and custom datasets}
+
+Evaluation of implemented method is tested on two sets of datasets: benbenchmarking datasets and custom dataset
+
+\subsection{Benchmarking datasets}
+
+Benchmarking datasets is a  collection of datasets where points are placed in a way that checks whether a given clustering method is able to produce a specific boundary region that separates points of a given class
+
+\begin{figure}[hbt!]
+
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\textwidth]{plots/vanilla/blobs.png}
+        \caption{Dataset with normally distributed blobs. Seed = 42 }
+    \end{subfigure}
+    \hfill 
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\textwidth]{plots/vanilla/blobs_var.png}
+        \caption{Dataset with normally distributed blobs but different standard deviation. Seed = 3}
+    \end{subfigure}
+
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\textwidth]{plots/vanilla/ano.png}
+        \caption{Anisotropicly distributed data from \protect\subref{plots:vanilla:blobs}}
+    \end{subfigure}
+        \hfill 
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\textwidth]{plots/vanilla/circles5.png}
+        \caption{Circles with radius factor = 0.5 and noise applied to x-axis via normal distribution with $std = 0.05$ }
+    \end{subfigure}
+    
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\textwidth]{plots/vanilla/moons.png}
+        \caption{Moon shaped dataset with noise applied to x-axis via normal distribution with $std = 0.05$}
+    \end{subfigure}
+     \hfill
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\textwidth]{plots/vanilla/no_structure.png}
+        \caption{Uniformly distributed data on $[-1, 1]$}
+    \end{subfigure}
+    
+    
+    
+\caption{Set of benchmarking datasets used in documentation of Python \lstinline{sklearn} package available at \url{https://scikit-learn.org/stable/auto_examples/cluster/plot_cluster_comparison.html}. These were rewritten for R to mimic the structure but because random state cannot be replicated it differs a little bit.}
+
+\end{figure}
+
+\subsection{Custom dataset}
+
+The additional dataset that is included in the benchmarking process has been created specifically for this project. Data is combined from two datasets:
+
+\\ \\ \\ \clearpage
+\begin{enumerate}
+    \item The Standardized World Income Inequality Database, Versions 8-9 (SWIID) \cite{DVN/LM4OWF_2019}
+    \item Penn World Table version 9.1 (PWT)
+\end{enumerate}
+
+\par
+Three variables has been calculated using the following methods:
+\begin{itemize}
+        \item from PWT 9.1 : $growth\_rate = 100*(\log(rgdpna/pop) - lag(\log(rgdpna/pop))$
+        \item from SWIID 8.3: $gini\_mkt\_rate = 100*(\log(gini\_mkt) - lag(\log(gini\_mkt))$
+        \item from SWIID 8.3:$gini\_disp\_rate = 100*(log(gini\_disp) - lag(\log(gini\_disp))$
+\end{itemize}
+
+where $lag$ function takes vector and shift all value forwards (leaving the first to be NaN)
+
+From both datasets only the following countries has been selected:
+
+\begin{itemize}
+    \item United States
+    \item Mexico
+    \item Chile
+    \item Turkey
+    \item Germany
+    \item Poland
+    \item Czech Republic
+    \item Sweden
+\end{itemize}
+
+
+The data of interest is stored per each country per year, however, year span is not the same for PWT and SIID (not even available countries) so it must had been filtered:
+<<semi_join_filter, eval=FALSE>>=
+  target_columns <- c('country', 'year')
+  swiid_summary <- dplyr::semi_join(swiid_summary, pwt, by = target_columns)
+  pwt <- dplyr::semi_join(pwt, swiid_summary, by = target_columns)
+@
+
+The next important step is to calculate rolling average over those years for every country which is customizable by two parameters \lstinline{mean_width} which is the length of the sliding window and \lstinline{slide_by} which is the step of the sliding window. 
+
+<<sliding_average, eval=FALSE>>=
+
+    df <- data.frame(growth_rate, gini_mkt_rate, gini_disp_rate)
+    if(!is.null(mean_width)){
+      func <- function(x) zoo::rollapply(x, mean_width, mean, by = slide_by);
+      df <- apply(df, 2, func);
+      if(is.null(nrow(df))){ 
+        df <- t(df)
+      }
+      df <- as.data.frame(df);
+    }
+@
+
+
+\begin{figure}
+    \centering
+    \includegraphics[height=0.45\textheight]{plots/vanilla/disp_rate.png}
+    \caption{Gini disp rate over growth rate for every country. Sliding window width is 5 with step 1}
+    \label{fig:disp_rate}
+\end{figure}
+
+\begin{figure}
+    \centering
+    \includegraphics[height=0.45\textheight]{plots/vanilla/mkt_rate.png}
+    \caption{Gini mkt rate over growth rate for every country. Sliding window width is 5 with step 1}
+    \label{fig:mkt_rate}
+\end{figure}
+
+Although data depicted in Figure \ref{fig:disp_rate}
+and in Figure \ref{fig:mkt_rate} was curated specifically for this project, there will be no attempt  to cluster this data by country since its structure does not seems to be easily separable, even for a human. Instead,  analysis will be done with some number of clusters in  mind that will group this points into categories which is a technique often used whenever we want to divide data into groups but do not know what boundaries should be exactly. This could be one application of clustering in general.
+
+\section{Rough k-means visualisation and results}
+
+
+\begin{figure}[hbtp!]
+    \begin{subfigure}{0.5\textwidth}
+ 
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/blobs 0.9 0.5 .png}
+        \caption{}
+    \end{subfigure}
+    \hfill 
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/blobs 0.9 0.7 .png}
+        \caption{}
+    \end{subfigure}
+
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/blobs 0.95 0.5 .png}
+        \caption{}
+    \end{subfigure}
+        \hfill 
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/blobs 0.95 0.7 .png}
+       \caption{}
+    \end{subfigure} 
+    \caption{Rough k-means clustering on blobs }
+        \label{fig:roughfblobs}
+
+\end{figure}
+\clearpage
+
+
+\begin{figure}[hbtp!]
+
+    \begin{subfigure}{0.5\textwidth}
+        \label{plots:vanilla:blobs}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/blobs_var 0.9 0.5 .png}
+        \caption{}
+    \end{subfigure}
+    \hfill 
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/blobs_var 0.9 0.7 .png}
+        \caption{}
+    \end{subfigure}
+
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/blobs_var 0.95 0.5 .png}
+        \caption{}
+    \end{subfigure}
+        \hfill 
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/blobs_var 0.95 0.7 .png}
+       \caption{}
+    \end{subfigure} 
+    \caption{Rough k-means clustering on blobs with variant standard deviation }
+        \label{fig:roughvblobs}
+\end{figure}
+
+\begin{figure}[hbtp!]
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/ano 0.9 0.5 .png}
+        \caption{}
+    \end{subfigure}
+    \hfill 
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/ano 0.9 0.7 .png}
+        \caption{}
+    \end{subfigure}
+
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/ano 0.95 0.5 .png}
+        \caption{}
+    \end{subfigure}
+        \hfill 
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/ano 0.95 0.7 .png}
+       \caption{}
+    \end{subfigure} 
+    \caption{Rough k-means clustering on aniso uniform blobs }
+        \label{fig:roughanoblobs}
+
+\end{figure}
+\clearpage
+
+
+\begin{figure}[hbtp!]
+    \begin{subfigure}{0.5\textwidth}
+            
+
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/circles5 0.9 0.5 .png}
+        \caption{}
+    \end{subfigure}
+    \hfill 
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/circles5 0.9 0.7 .png}
+        \caption{}
+    \end{subfigure}
+
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/circles5 0.95 0.5 .png}
+        \caption{}
+    \end{subfigure}
+        \hfill 
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/circles5 0.95 0.7 .png}
+       \caption{}
+    \end{subfigure} 
+    \caption{Rough k-means clustering on inscribed cirle within another circle. Radius ratio 0.5 }
+    \label{fig:roughcircles5}
+
+\end{figure}
+\clearpage
+
+
+\begin{figure}[hbtp!]
+
+    \begin{subfigure}{0.5\textwidth}
+
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/circles8 0.9 0.5 .png}
+        \caption{}
+    \end{subfigure}
+    \hfill 
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/circles8 0.9 0.7 .png}
+        \caption{}
+    \end{subfigure}
+
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/circles8 0.95 0.5 .png}
+        \caption{}
+    \end{subfigure}
+        \hfill 
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/circles8 0.95 0.7 .png}
+       \caption{}
+    \end{subfigure} 
+    \caption{Rough k-means clustering on inscribed cirle within another circle. Radius ratio 0.8 }
+    \label{fig:roughcircles8}
+\end{figure}
+\clearpage
+
+\begin{figure}[hbtp!]
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/moons 0.9 0.5 .png}
+        \caption{}
+    \end{subfigure}
+    \hfill 
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/moons 0.9 0.7 .png}
+        \caption{}
+    \end{subfigure}
+
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/moons 0.95 0.5 .png}
+        \caption{}
+    \end{subfigure}
+        \hfill 
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/moons 0.95 0.7 .png}
+       \caption{}
+    \end{subfigure} 
+    \caption{Rough k-means clustering on moon-shaped data}
+    \label{fig:roughmoons}
+
+\end{figure}
+\clearpage
+
+
+\begin{figure}[hbtp!]
+
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/no_structure 0.9 0.5 .png}
+        \caption{}
+    \end{subfigure}
+    \hfill 
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/no_structure 0.9 0.7 .png}
+        \caption{}
+    \end{subfigure}
+
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/no_structure 0.95 0.5 .png}
+        \caption{}
+    \end{subfigure}
+        \hfill 
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_benchmarking/no_structure 0.95 0.7 .png}
+       \caption{}
+    \end{subfigure} 
+    \caption{Rough k-means clustering on uniformly distributed data [-1, 1]}
+    \label{fig:roughnostructure}
+
+\end{figure}
+\clearpage
+
+
+\begin{figure}[hbtp!]
+
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_custom/disp 0.9 0.5 .png}
+        \caption{}
+    \end{subfigure}
+    \hfill 
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_custom/disp 0.9 0.7 .png}
+        \caption{}
+    \end{subfigure}
+
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_custom/disp 0.95 0.5 .png}
+        \caption{}
+    \end{subfigure}
+        \hfill 
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_custom/disp 0.95 0.7 .png}
+       \caption{}
+    \end{subfigure} 
+    \caption{Rough k-means clustering on custom dataset. Gini disp rate}
+    \label{fig:roughnostructure}
+
+\end{figure}
+\clearpage
+
+\begin{figure}[hbtp!]
+
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_custom/mkt 0.9 0.5 .png}
+        \caption{}
+    \end{subfigure}
+    \hfill 
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_custom/mkt 0.9 0.7 .png}
+        \caption{}
+    \end{subfigure}
+
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_custom/mkt 0.95 0.5 .png}
+        \caption{}
+    \end{subfigure}
+        \hfill 
+    \begin{subfigure}{0.5\textwidth}
+        \includegraphics[width=\textwidth]{plots/res_custom/mkt 0.95 0.7 .png}
+       \caption{}
+    \end{subfigure} 
+    \caption{Rough k-means clustering on custom dataset. Gini mkt rate}
+    \label{fig:roughnostructure}
+
+\end{figure}
+\clearpage
+
+There are few observations that come from Figures \ref{fig:roughfblobs} - \ref{fig:roughnostructure}. The first one is that because rough k-means is only a slight modification of k-means it inherits mostly some of its disadvantages. As we can see in Figure \ref{fig:roughcircles5}, \ref{fig:roughcircles8}, \ref{fig:roughmoons} it has problems when it comes to specific geometry of dataset. We can also see in Figure \ref{fig:roughcircles5}, \ref{fig:roughcircles8}, \ref{fig:roughmoons} and most of all in Figure \ref{fig:roughnostructure} that it is not able (by definition) to adapt number of clusters to the geometry of datasets, but as this was problematic to the classic k-means algorithm, it is not suprising now. 
+
+All those Figures show the impact of choice of epsilon and the weight of lower approximation on clustering. It can be observed because random state used for calculating initial centroids is preserved across runs with different hyperparameters. 
+
+The closer epsilon is to 1, the more points falls into lower approximation of one of the clusters because there are less points for which distances to any other cluster centroid other than minimum is close to that minimum distance. In other words, epsilon controls how far the minimum distance must be, in relation to other distances, for the point to be included in lower or upper approximation.
+
+The weight of lower approximation controls how centroids are shifted toward lower approximation region.
+
+Although Random Partition was a suggested technique for cluster initialization, it can easily malfunction whenever relatively low epsilon (0.85 and lower) is set and there is a center point-symmetry in dataset. In such situation, having cluster centroid initialized around center of data means that there will be very few or even no points for which distances between cluster centroid will differ very much. 
+
+Future work might include plotting exact lower approximation region. Now, region shown is in fact convex hull over points from lower approximation while it can be drawn with boundaries similar to that in Figure \ref{fig:roughnostructure} since so many point roughly approximate that lower bound. Additionally, \lstinline{kmeans++} could be used to initialize centroids in more vibrant way and to ensure lower values of epsilon are also managable.
+
+
+
+
+
+
+
+% gini_mkt_rate;Swiid 8.3;100*(log(gini_mkt) - lag(log(gini_mkt))
+% gini_disp_rate;Swiid 8.3;100*(log(gini_disp) - lag(log(gini_disp))$
+\bibliographystyle{unsrt}
+\bibliography{references}
+\end{document}
